@@ -506,6 +506,7 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
         val holderPosition = IntArray(2)
         holder.getLocationOnScreen(holderPosition)
         val state = page.guidedReading
+        if (state.detectionState != GuidedPageState.DetectionState.READY) return false
         val activeRegion = state.regions.getOrNull(state.currentIndex)
         val index = holder.findGuidedRegionAt(
             x = event.rawX - holderPosition[0],
