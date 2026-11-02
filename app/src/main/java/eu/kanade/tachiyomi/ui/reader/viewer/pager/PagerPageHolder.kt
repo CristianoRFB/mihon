@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.ui.reader.viewer.ReaderPageImageView
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
 import eu.kanade.tachiyomi.widget.ViewPagerAdapter
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.collectLatest
@@ -165,38 +166,55 @@ class PagerPageHolder(
                     null
                 }
                 val detectionBitmap = if (!isAnimated && viewer.config.guidedReading) {
-                    decodeDetectionBitmap(source)
+                    // Bubble detection is optional; an unsupported/corrupt preview
+                    // must never prevent the original page from being displayed.
+                    try {
+                        decodeDetectionBitmap(source)
+                    } catch (error: Exception) {
+                        logcat(LogPriority.WARN, error) { "Unable to decode guided reading preview" }
+                        null
+                    }
                 } else {
                     null
                 }
                 ImageData(source, isAnimated, background, detectionBitmap)
             }
-            withUIContext {
-                setImage(
-                    source,
-                    isAnimated,
-                    Config(
-                        zoomDuration = viewer.config.doubleTapAnimDuration,
-                        minimumScaleType = viewer.config.imageScaleType,
-                        cropBorders = viewer.config.imageCropBorders,
-                        zoomStartPosition = viewer.config.imageZoomType,
-                        landscapeZoom = viewer.config.landscapeZoom,
-                    ),
-                )
-                if (!isAnimated) {
-                    pageBackground = background
-                }
-                removeErrorLayout()
-                if (viewer.config.guidedReading) {
-                    page.guidedReading.markLoading()
-                    if (detectionBitmap != null) {
-                        detectGuidedRegions(detectionBitmap)
-                    } else {
-                        viewer.onGuidedRegionsDetected(page, emptyList())
+            // Transfer ownership to the detection job only after it was scheduled.
+            // If UI dispatch is cancelled, release the decoded preview here instead.
+            var unclaimedDetectionBitmap = detectionBitmap
+            try {
+                withUIContext {
+                    setImage(
+                        source,
+                        isAnimated,
+                        Config(
+                            zoomDuration = viewer.config.doubleTapAnimDuration,
+                            minimumScaleType = viewer.config.imageScaleType,
+                            cropBorders = viewer.config.imageCropBorders,
+                            zoomStartPosition = viewer.config.imageZoomType,
+                            landscapeZoom = viewer.config.landscapeZoom,
+                        ),
+                    )
+                    if (!isAnimated) {
+                        pageBackground = background
+                    }
+                    removeErrorLayout()
+                    if (viewer.config.guidedReading) {
+                        page.guidedReading.markLoading()
+                        if (detectionBitmap != null) {
+                            detectGuidedRegions(detectionBitmap)
+                            unclaimedDetectionBitmap = null
+                        } else {
+                            viewer.onGuidedRegionsDetected(page, emptyList())
+                        }
                     }
                 }
+            } finally {
+                unclaimedDetectionBitmap?.recycle()
             }
-        } catch (e: Throwable) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             logcat(LogPriority.ERROR, e)
             withUIContext {
                 setError(e)
@@ -206,19 +224,22 @@ class PagerPageHolder(
 
     private fun detectGuidedRegions(bitmap: Bitmap) {
         detectionJob?.cancel()
-        detectionJob = scope.launchIO {
+        val job = scope.launchIO {
             val regions = try {
                 viewer.bubbleDetector.detect(bitmap, viewer.guidedReadingDirection)
-            } catch (error: Throwable) {
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
                 logcat(LogPriority.ERROR, error) { "Failed to detect speech bubbles on page ${page.number}" }
                 emptyList()
-            } finally {
-                bitmap.recycle()
             }
             withUIContext {
                 viewer.onGuidedRegionsDetected(page, regions)
             }
         }
+        // Runs even when cancelled before the coroutine starts executing.
+        job.invokeOnCompletion { bitmap.recycle() }
+        detectionJob = job
     }
 
     private fun decodeDetectionBitmap(source: BufferedSource): Bitmap? {
