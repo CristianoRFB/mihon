@@ -184,6 +184,9 @@ class PagerPageHolder(
             var unclaimedDetectionBitmap = detectionBitmap
             try {
                 withUIContext {
+                    // Do not keep a magnified bubble from the previous image visible
+                    // while its replacement is loading or being re-detected.
+                    hideGuidedRegion(duration = 1)
                     setImage(
                         source,
                         isAnimated,
