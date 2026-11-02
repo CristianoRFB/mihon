@@ -47,11 +47,11 @@ class GuidedDetectionPostprocessorTest {
 
     @Test
     fun `orders western speech bubbles left to right and rows top to bottom`() {
-        val a = bubble(0.1f, 0.1f, 0.3f, 0.3f)
-        val b = bubble(0.7f, 0.1f, 0.9f, 0.3f)
-        val c = bubble(0.1f, 0.7f, 0.3f, 0.9f)
+        val a = bubble(0.1f, 0.1f, 0.3f, 0.3f, 0.91f)
+        val b = bubble(0.7f, 0.1f, 0.9f, 0.3f, 0.92f)
+        val c = bubble(0.1f, 0.7f, 0.3f, 0.9f, 0.93f)
         val result = GuidedDetectionPostprocessor.process(listOf(c, b, a), ltr)
-        assertEquals(listOf(a, b, c).map { it.confidence }, result.map { it.confidence })
+        assertEquals(listOf(0.91f, 0.92f, 0.93f), result.map { it.confidence })
         assertTrue(result[0].bounds.centerX < result[1].bounds.centerX)
         assertTrue(result[1].bounds.centerY < result[2].bounds.centerY)
     }
@@ -83,6 +83,10 @@ class GuidedDetectionPostprocessorTest {
     }
 
     private fun bubble(
-        left: Float, top: Float, right: Float, bottom: Float, confidence: Float = 0.9f,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        confidence: Float = 0.9f,
     ) = GuidedRegion(NormalizedRect(left, top, right, bottom), confidence)
 }
