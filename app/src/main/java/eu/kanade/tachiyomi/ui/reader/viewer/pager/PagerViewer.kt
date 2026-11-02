@@ -480,6 +480,8 @@ abstract class PagerViewer(val activity: ReaderActivity) : Viewer {
     }
 
     internal fun onGuidedRegionsDetected(page: ReaderPage, regions: List<GuidedRegion>) {
+        // A late result must not re-enable a bubble overlay after the setting was disabled.
+        if (!config.guidedReading) return
         val pendingStep = page.guidedReading.setRegions(regions) ?: return
         if (currentPage != page) return
         if (applyGuidedStep(pendingStep)) return
