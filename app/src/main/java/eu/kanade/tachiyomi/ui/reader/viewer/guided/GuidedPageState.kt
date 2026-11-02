@@ -53,6 +53,8 @@ class GuidedPageState {
     fun backward(): Step = step(Direction.BACKWARD)
 
     fun toggleRegion(index: Int): Step? {
+        // Coordinates from the previous image must not be interactive during re-detection.
+        if (detectionState != DetectionState.READY) return null
         val region = regions.getOrNull(index) ?: return null
         return if (currentIndex == index) {
             currentIndex = NO_REGION
