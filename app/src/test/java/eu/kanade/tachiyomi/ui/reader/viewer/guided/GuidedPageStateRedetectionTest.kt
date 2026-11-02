@@ -59,6 +59,26 @@ class GuidedPageStateRedetectionTest {
     }
 
     @Test
+    fun `regions from previous detection cannot be tapped while loading`() {
+        val state = GuidedPageState()
+        state.setRegions(listOf(left, right))
+        state.markLoading()
+
+        assertEquals(null, state.toggleRegion(1))
+        assertEquals(-1, state.currentIndex)
+        assertEquals(null, state.setRegions(listOf(left, right)))
+        assertEquals(GuidedPageState.Step.Focus(right), state.toggleRegion(1))
+    }
+
+    @Test
+    fun `tapping a region before initial detection is ignored`() {
+        val state = GuidedPageState()
+
+        assertEquals(null, state.toggleRegion(0))
+        assertEquals(-1, state.currentIndex)
+    }
+
+    @Test
     fun `pending next navigation is not lost on re-detection`() {
         val state = GuidedPageState()
         state.setRegions(listOf(left, right))
