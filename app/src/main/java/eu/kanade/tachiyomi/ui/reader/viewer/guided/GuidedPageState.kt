@@ -19,17 +19,33 @@ class GuidedPageState {
     }
 
     fun setRegions(regions: List<GuidedRegion>): Step? {
+        // Re-detection may return a different number or ordering of regions. Preserve
+        // the selected bubble by geometry, not by its potentially stale index.
+        val previouslySelected = this.regions.getOrNull(currentIndex)
         this.regions = regions
         detectionState = DetectionState.READY
         val shouldFocusLast = selectLastWhenReady && regions.isNotEmpty()
         if (selectLastWhenReady) {
             currentIndex = regions.lastIndex
             selectLastWhenReady = false
+        } else {
+            currentIndex = previouslySelected?.let { previous ->
+                regions.indices.maxByOrNull { index ->
+                    previous.bounds.intersectionOverUnion(regions[index].bounds)
+                }?.takeIf { index ->
+                    previous.bounds.intersectionOverUnion(regions[index].bounds) >= MIN_MATCH_IOU
+                }
+            } ?: NO_REGION
         }
         return pendingStep?.let {
             pendingStep = null
             step(it)
-        } ?: if (shouldFocusLast) Step.Focus(regions.last()) else null
+        } ?: when {
+            shouldFocusLast -> Step.Focus(regions.last())
+            currentIndex != NO_REGION -> Step.Focus(regions[currentIndex])
+            previouslySelected != null -> Step.ShowWholePage
+            else -> null
+        }
     }
 
     fun forward(): Step = step(Direction.FORWARD)
@@ -37,6 +53,8 @@ class GuidedPageState {
     fun backward(): Step = step(Direction.BACKWARD)
 
     fun toggleRegion(index: Int): Step? {
+        // Coordinates from the previous image must not be interactive during re-detection.
+        if (detectionState != DetectionState.READY) return null
         val region = regions.getOrNull(index) ?: return null
         return if (currentIndex == index) {
             currentIndex = NO_REGION
@@ -112,5 +130,6 @@ class GuidedPageState {
 
     private companion object {
         const val NO_REGION = -1
+        const val MIN_MATCH_IOU = 0.5f
     }
 }

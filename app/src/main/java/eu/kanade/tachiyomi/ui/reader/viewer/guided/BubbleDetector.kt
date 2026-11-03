@@ -52,10 +52,7 @@ class BubbleDetector(
             }
         } finally {
             if (scaledBitmap !== bitmap) scaledBitmap.recycle()
-        }
-            .let(::removeDuplicates)
-            .map { it.copy(bounds = it.bounds.expanded(REGION_PADDING)) }
-            .let { GuidedRegionOrderer.order(it, direction) }
+        }.let { GuidedDetectionPostprocessor.process(it, direction) }
     }
 
     override fun close() {
@@ -83,18 +80,35 @@ class BubbleDetector(
             error("Unable to remove an incomplete guided reading model")
         }
 
-        val request = Request.Builder().url(MODEL_URL).build()
-        httpClient.newCall(request).execute().use { response ->
-            check(response.isSuccessful) { "Unable to download guided reading model: HTTP ${response.code}" }
-            val body = checkNotNull(response.body) { "Guided reading model response was empty" }
-            body.byteStream().use { input ->
-                FileOutputStream(temporaryModel).use { output -> input.copyTo(output) }
+        try {
+            val request = Request.Builder().url(MODEL_URL).build()
+            httpClient.newCall(request).execute().use { response ->
+                check(response.isSuccessful) { "Unable to download guided reading model: HTTP ${response.code}" }
+                val body = checkNotNull(response.body) { "Guided reading model response was empty" }
+                body.byteStream().use { input ->
+                    FileOutputStream(temporaryModel).use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var downloadedBytes = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count == -1) break
+                            downloadedBytes += count
+                            check(downloadedBytes <= MAX_MODEL_BYTES) {
+                                "Guided reading model exceeds maximum allowed download size"
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
             }
-        }
 
-        check(temporaryModel.sha256() == MODEL_SHA256) { "Guided reading model checksum does not match" }
-        check(temporaryModel.renameTo(model)) { "Unable to install guided reading model" }
-        return model
+            check(temporaryModel.sha256() == MODEL_SHA256) { "Guided reading model checksum does not match" }
+            check(temporaryModel.renameTo(model)) { "Unable to install guided reading model" }
+            return model
+        } finally {
+            // Failed downloads and checksum mismatches must not leave partial models behind.
+            if (temporaryModel.exists()) temporaryModel.delete()
+        }
     }
 
     private fun bitmapToPlanarRgb(bitmap: Bitmap) = ByteBuffer
@@ -120,9 +134,10 @@ class BubbleDetector(
         val boxes = (result[OUTPUT_BOXES_NAME].get().value as Array<Array<FloatArray>>)[0]
         val scores = (result[OUTPUT_SCORES_NAME].get().value as Array<FloatArray>)[0]
 
-        return labels.indices.mapNotNull { index ->
-            if (labels[index] != BUBBLE_CLASS || scores[index] < CONFIDENCE_THRESHOLD) return@mapNotNull null
+        return (0 until minOf(labels.size, boxes.size, scores.size)).mapNotNull { index ->
+            if (labels[index] != BUBBLE_CLASS) return@mapNotNull null
             val box = boxes[index]
+            if (box.size < 4) return@mapNotNull null
             val bounds = NormalizedRect(
                 left = (box[0] / imageWidth).coerceIn(0f, 1f),
                 top = (box[1] / imageHeight).coerceIn(0f, 1f),
@@ -132,15 +147,6 @@ class BubbleDetector(
             if (bounds.width <= 0f || bounds.height <= 0f) null else GuidedRegion(bounds, scores[index])
         }
     }
-
-    private fun removeDuplicates(regions: List<GuidedRegion>): List<GuidedRegion> =
-        regions.sortedByDescending(GuidedRegion::confidence)
-            .fold(mutableListOf()) { accepted, candidate ->
-                if (accepted.none { it.bounds.intersectionOverUnion(candidate.bounds) >= DUPLICATE_IOU }) {
-                    accepted += candidate
-                }
-                accepted
-            }
 
     private fun File.sha256(): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -158,9 +164,6 @@ class BubbleDetector(
     private companion object {
         const val INPUT_SIZE = 640
         const val INFERENCE_THREADS = 2
-        const val CONFIDENCE_THRESHOLD = 0.45f
-        const val DUPLICATE_IOU = 0.7f
-        const val REGION_PADDING = 0.12f
         const val BUBBLE_CLASS = 0L
 
         const val INPUT_IMAGE_NAME = "images"
@@ -169,6 +172,7 @@ class BubbleDetector(
         const val OUTPUT_BOXES_NAME = "boxes"
         const val OUTPUT_SCORES_NAME = "scores"
 
+        const val MAX_MODEL_BYTES = 50L * 1024 * 1024
         const val MODEL_DIRECTORY = "guided_reading"
         const val MODEL_FILENAME = "bubble-detector-v4-s-int8.onnx"
         const val MODEL_SHA256 = "5fe9e4f576e49d4e7e8b0e029d6d3cdc252abd4694113e1cae120e62c931ea79"
