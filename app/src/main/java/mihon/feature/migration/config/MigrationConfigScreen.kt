@@ -354,11 +354,13 @@ class MigrationConfigScreen(private val mangaIds: Collection<Long>) : Screen() {
             val pinnedSources = sourcePreferences.pinnedSources.get().mapNotNull { it.toLongOrNull() }
             val includedSources = sourcePreferences.migrationSources.get()
             val disabledSources = sourcePreferences.disabledSources.get()
-                .mapNotNull { it.toLongOrNull() }
+                .mapNotNullTo(HashSet()) { it.toLongOrNull() }
             val sources = sourceManager.getAll()
                 .asSequence()
                 .filterIsInstance<HttpSource>()
-                .filter { it.lang in languages }
+                // Disabled sources are not viable migration targets, even when an old
+                // migration selection or pinned preference still contains their IDs.
+                .filter { isEligibleMigrationDestination(it.id, it.lang, languages, disabledSources) }
                 .map {
                     val source = Source(
                         id = it.id,
@@ -372,7 +374,7 @@ class MigrationConfigScreen(private val mangaIds: Collection<Long>) : Screen() {
                         isSelected = when {
                             includedSources.isNotEmpty() -> source.id in includedSources
                             pinnedSources.isNotEmpty() -> source.id in pinnedSources
-                            else -> source.id !in disabledSources
+                            else -> true
                         },
                     )
                 }
@@ -452,3 +454,15 @@ class MigrationConfigScreen(private val mangaIds: Collection<Long>) : Screen() {
         val shortLanguage: String = LocaleHelper.getShortDisplayName(source.lang)
     }
 }
+
+/**
+ * Only enabled sources in enabled languages are offered as migration destinations.
+ * This does not remove their manga from the migration *origin* screen, where
+ * a disabled source may still contain library entries the user wants to move.
+ */
+internal fun isEligibleMigrationDestination(
+    sourceId: Long,
+    language: String,
+    enabledLanguages: Set<String>,
+    disabledSourceIds: Set<Long>,
+): Boolean = language in enabledLanguages && sourceId !in disabledSourceIds
