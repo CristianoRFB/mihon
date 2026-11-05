@@ -77,7 +77,7 @@ class ExtensionManager(
     private val installedExtensionsState = MutableStateFlow(
         InstalledExtensionMaps<Extension.Loaded, Extension.NotLoaded>(),
     )
-    val installedExtensionsFlow = installedExtensionsState.onStart { initialized.await() }
+    internal val installedExtensionsFlow = installedExtensionsState.onStart { initialized.await() }
     val loadedExtensionsFlow = installedExtensionsFlow.map { it.loaded.values.toList() }
 
     // Every store's listing, since more than one store can list the same extension
