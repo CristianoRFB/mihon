@@ -5,11 +5,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +58,7 @@ fun UpdateScreen(
     onInvertSelection: () -> Unit,
     onCalendarClicked: () -> Unit,
     onUpdateLibrary: suspend () -> Boolean,
+    onClearHistory: () -> Unit,
     onDownloadChapter: (List<UpdatesItem>, ChapterDownloadAction) -> Unit,
     onMultiBookmarkClicked: (List<UpdatesItem>, bookmark: Boolean) -> Unit,
     onMultiMarkAsReadClicked: (List<UpdatesItem>, read: Boolean) -> Unit,
@@ -69,12 +73,38 @@ fun UpdateScreen(
     }
 
     val scope = rememberCoroutineScope()
+    var showClearHistoryConfirmation by remember { mutableStateOf(false) }
+
+    if (showClearHistoryConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryConfirmation = false },
+            title = { Text(stringResource(MR.strings.clear_updates_list_title)) },
+            text = { Text(stringResource(MR.strings.clear_updates_list_description)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearHistoryConfirmation = false
+                        onClearHistory()
+                    },
+                ) {
+                    Text(stringResource(MR.strings.action_ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryConfirmation = false }) {
+                    Text(stringResource(MR.strings.action_cancel))
+                }
+            },
+        )
+    }
 
     Scaffold(
         topBar = { scrollBehavior ->
             UpdatesAppBar(
                 onCalendarClicked = { onCalendarClicked() },
                 onUpdateLibrary = { scope.launch { onUpdateLibrary() } },
+                onClearHistory = { showClearHistoryConfirmation = true },
+                hasUpdates = state.items.isNotEmpty(),
                 onFilterClicked = { onFilterClicked() },
                 hasFilters = hasActiveFilters,
                 actionModeCounter = state.selected.size,
@@ -156,6 +186,8 @@ fun UpdateScreen(
 private fun UpdatesAppBar(
     onCalendarClicked: () -> Unit,
     onUpdateLibrary: () -> Unit,
+    onClearHistory: () -> Unit,
+    hasUpdates: Boolean,
     onFilterClicked: () -> Unit,
     hasFilters: Boolean,
     // For action mode
@@ -188,6 +220,11 @@ private fun UpdatesAppBar(
                         icon = MaterialSymbols.Rounded.Refresh,
                         onClick = onUpdateLibrary,
                     ),
+                ) + listOfNotNull(
+                    AppBar.OverflowAction(
+                        title = stringResource(MR.strings.clear_updates_list_title),
+                        onClick = onClearHistory,
+                    ).takeIf { hasUpdates },
                 ),
             )
         },
