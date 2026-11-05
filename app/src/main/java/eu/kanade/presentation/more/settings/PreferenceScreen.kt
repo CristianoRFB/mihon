@@ -125,9 +125,11 @@ internal fun List<Preference>.preferencePosition(groupIndex: Int, childIndex: In
         if (index == groupIndex) {
             return when (preference) {
                 is Preference.PreferenceGroup -> {
-                    if (childIndex == null) position
-                    else if (childIndex in preference.preferenceItems.indices) position + childIndex + 1
-                    else -1
+                    when {
+                        childIndex == null -> position
+                        childIndex in preference.preferenceItems.indices -> position + childIndex + 1
+                        else -> -1
+                    }
                 }
                 else -> if (childIndex == null) position else -1
             }
