@@ -559,9 +559,9 @@ data class UpdatesItem(
     val selected: Boolean = false,
 )
 
-/** A new chapter fetched exactly at the cleanup cutoff is still part of the cleared list. */
+/** Before the first cleanup, preserve the pre-existing Updates behavior, including zero timestamps. */
 internal fun isUpdateNewerThanCleanup(dateFetchMillis: Long, clearedBefore: Long): Boolean =
-    dateFetchMillis > clearedBefore
+    clearedBefore <= 0L || dateFetchMillis > clearedBefore
 
 /** Guards against future-dated fetches when a user's device clock is behind. */
 internal fun updateClearCutoff(nowMillis: Long, latestVisibleFetchMillis: Long?): Long =

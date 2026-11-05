@@ -20,6 +20,8 @@ class UpdatesClearCutoffTest {
     @Test
     fun `initial preference preserves all existing timestamped updates`() {
         isUpdateNewerThanCleanup(1_000L, 0L) shouldBe true
+        isUpdateNewerThanCleanup(0L, 0L) shouldBe true
+        isUpdateNewerThanCleanup(-1L, 0L) shouldBe true
     }
 
     @Test
