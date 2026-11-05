@@ -3,14 +3,20 @@ package eu.kanade.presentation.more.settings.screen.advanced
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,7 +32,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastMap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cafe.adriel.voyager.navigator.LocalNavigator
@@ -59,7 +64,7 @@ import tachiyomi.domain.source.interactor.GetSourcesWithNonLibraryManga
 import tachiyomi.domain.source.model.Source
 import tachiyomi.domain.source.model.SourceWithCount
 import tachiyomi.i18n.MR
-import tachiyomi.presentation.core.components.LazyColumnWithAction
+import tachiyomi.presentation.core.components.FastScrollLazyColumn
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
@@ -80,6 +85,12 @@ class ClearDatabaseScreen : Screen() {
         when (val s = state) {
             is ClearDatabaseViewModel.State.Loading -> LoadingScreen()
             is ClearDatabaseViewModel.State.Ready -> {
+                var searchQuery by remember { mutableStateOf("") }
+                var orphanedOnly by remember { mutableStateOf(false) }
+                val visibleSources = remember(s.items, searchQuery, orphanedOnly) {
+                    filterDatabaseSources(s.items, searchQuery, orphanedOnly)
+                }
+                val visibleSourceIds = visibleSources.map { it.id }
                 if (s.showConfirmation) {
                     var keepReadManga by remember { mutableStateOf(true) }
                     AlertDialog(
@@ -149,12 +160,12 @@ class ClearDatabaseScreen : Screen() {
                                             AppBar.Action(
                                                 title = stringResource(MR.strings.action_select_all),
                                                 icon = MaterialSymbols.Rounded.SelectAll,
-                                                onClick = viewModel::selectAll,
+                                                onClick = { viewModel.selectAll(visibleSourceIds) },
                                             ),
                                             AppBar.Action(
                                                 title = stringResource(MR.strings.action_select_inverse),
                                                 icon = MaterialSymbols.Rounded.FlipToBack,
-                                                onClick = viewModel::invertSelection,
+                                                onClick = { viewModel.invertSelection(visibleSourceIds) },
                                             ),
                                         ),
                                     )
@@ -170,19 +181,64 @@ class ClearDatabaseScreen : Screen() {
                             modifier = Modifier.padding(contentPadding),
                         )
                     } else {
-                        LazyColumnWithAction(
-                            contentPadding = contentPadding,
-                            actionLabel = stringResource(MR.strings.action_delete),
-                            actionEnabled = s.selection.isNotEmpty(),
-                            onClickAction = viewModel::showConfirmation,
+                        Column(
+                            modifier = Modifier
+                                .padding(contentPadding)
+                                .fillMaxSize(),
                         ) {
-                            items(s.items) { sourceWithCount ->
-                                ClearDatabaseItem(
-                                    source = sourceWithCount.source,
-                                    count = sourceWithCount.count,
-                                    isSelected = s.selection.contains(sourceWithCount.id),
-                                    onClickSelect = { viewModel.toggleSelection(sourceWithCount.source) },
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                label = { Text(stringResource(MR.strings.action_search)) },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = MaterialTheme.padding.medium),
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = MaterialTheme.padding.medium),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                FilterChip(
+                                    selected = orphanedOnly,
+                                    onClick = { orphanedOnly = !orphanedOnly },
+                                    label = { Text(stringResource(MR.strings.not_installed)) },
                                 )
+                            }
+                            FastScrollLazyColumn(
+                                modifier = Modifier.weight(1f),
+                                state = rememberLazyListState(),
+                            ) {
+                                if (visibleSources.isEmpty()) {
+                                    item("empty-database-search") {
+                                        Text(
+                                            text = stringResource(MR.strings.empty_screen),
+                                            modifier = Modifier.padding(MaterialTheme.padding.medium),
+                                        )
+                                    }
+                                }
+                                items(visibleSources, key = { it.id }) { sourceWithCount ->
+                                    ClearDatabaseItem(
+                                        source = sourceWithCount.source,
+                                        count = sourceWithCount.count,
+                                        isSelected = s.selection.contains(sourceWithCount.id),
+                                        onClickSelect = { viewModel.toggleSelection(sourceWithCount.source) },
+                                    )
+                                }
+                            }
+                            HorizontalDivider()
+                            Button(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                enabled = s.selection.isNotEmpty(),
+                                onClick = viewModel::showConfirmation,
+                            ) {
+                                // Include the number so hidden selections remain visible to the user
+                                // when switching filters before this destructive operation.
+                                Text(text = "${stringResource(MR.strings.action_delete)} (${s.selection.size})")
                             }
                         }
                     }
@@ -279,18 +335,18 @@ class ClearDatabaseViewModel(
         state.copy(selection = emptyList())
     }
 
-    fun selectAll() = state.update { state ->
+    // Bulk actions apply to the visible list; selections made before filtering are retained
+    // and counted on the delete button so the user cannot lose track of hidden selections.
+    fun selectAll(visibleIds: List<Long>) = state.update { state ->
         if (state !is State.Ready) return@update state
-        state.copy(selection = state.items.fastMap { it.id })
+        state.copy(selection = (state.selection + visibleIds).distinct())
     }
 
-    fun invertSelection() = state.update { state ->
+    fun invertSelection(visibleIds: List<Long>) = state.update { state ->
         if (state !is State.Ready) return@update state
-        state.copy(
-            selection = state.items
-                .fastMap { it.id }
-                .filterNot { it in state.selection },
-        )
+        val visible = visibleIds.toSet()
+        state.copy(selection = state.selection.filterNot { it in visible } +
+            visibleIds.filterNot { it in state.selection })
     }
 
     fun showConfirmation() = state.update { state ->
@@ -313,5 +369,22 @@ class ClearDatabaseViewModel(
             val selection: List<Long> = emptyList(),
             val showConfirmation: Boolean = false,
         ) : State
+    }
+}
+
+/** Filters only the presentation; it never removes items from the deletion selection. */
+internal fun filterDatabaseSources(
+    items: List<SourceWithCount>,
+    query: String,
+    orphanedOnly: Boolean,
+): List<SourceWithCount> {
+    val term = query.trim()
+    return items.filter { item ->
+        (!orphanedOnly || item.source.isStub) &&
+            (
+                term.isEmpty() ||
+                    item.source.visualName.contains(term, ignoreCase = true) ||
+                    item.id.toString().contains(term)
+                )
     }
 }
