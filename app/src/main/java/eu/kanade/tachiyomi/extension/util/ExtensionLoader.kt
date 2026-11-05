@@ -12,6 +12,7 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.SourceFactory
 import eu.kanade.tachiyomi.util.lang.Hash
 import eu.kanade.tachiyomi.util.storage.copyAndSetReadOnlyTo
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -268,6 +269,9 @@ internal object ExtensionLoader {
                 applyContentWarningsToInstalled = applyContentWarningsToInstalled,
                 alreadyLoaded = alreadyLoaded,
             )
+        } catch (e: CancellationException) {
+            // A cancelled bulk reload must not turn unfinished extensions into failed entries.
+            throw e
         } catch (e: Throwable) {
             val pkgInfo = extensionInfo.packageInfo
             logcat(LogPriority.ERROR, e) { "Extension load error: ${pkgInfo.packageName}" }
