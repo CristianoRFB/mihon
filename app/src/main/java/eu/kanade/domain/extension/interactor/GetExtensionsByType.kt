@@ -19,10 +19,13 @@ class GetExtensionsByType(
 
         return combine(
             preferences.enabledLanguages.changes(),
-            extensionManager.loadedExtensionsFlow,
-            extensionManager.notLoadedExtensionsFlow,
+            extensionManager.installedExtensionsFlow,
             extensionManager.availableExtensionsFlow,
-        ) { enabledLanguages, _loaded, _notLoaded, _available ->
+        ) { enabledLanguages, installed, _available ->
+            // Read both classifications from the same snapshot. Combining separate flows
+            // can show a partially reclassified list while extensions are being trusted.
+            val _loaded = installed.loaded.values.toList()
+            val _notLoaded = installed.notLoaded.values.toList()
             val byName = compareBy<Extension, String>(String.CASE_INSENSITIVE_ORDER) { it.name }
 
             val (loadedUpdates, loaded) = _loaded.partition { it.hasUpdate }
