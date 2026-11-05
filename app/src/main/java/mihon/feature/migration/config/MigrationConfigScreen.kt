@@ -2,6 +2,9 @@ package mihon.feature.migration.config
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -10,11 +13,13 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SmallExtendedFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -107,7 +112,26 @@ class MigrationConfigScreen(private val mangaIds: Collection<Long>) : Screen() {
             return
         }
 
+        var sourceQuery by rememberSaveable { mutableStateOf("") }
+        var searchSection by rememberSaveable { mutableStateOf(SourceSearchSection.All) }
+        val query = sourceQuery.trim()
         val (selectedSources, availableSources) = state.sources.partition { it.isSelected }
+        val visibleSelectedSources = if (searchSection != SourceSearchSection.Available) {
+            selectedSources.filter { source ->
+                matchesMigrationSourceSearch(source.name, source.source.lang, source.id, query)
+            }
+        } else {
+            emptyList()
+        }
+        val visibleAvailableSources = if (searchSection != SourceSearchSection.Selected) {
+            availableSources.filter { source ->
+                matchesMigrationSourceSearch(source.name, source.source.lang, source.id, query)
+            }
+        } else {
+            emptyList()
+        }
+        // Reordering a filtered subset would otherwise move unrelated hidden entries.
+        val canReorder = query.isEmpty() && searchSection == SourceSearchSection.All
         val showLanguage by remember(state) {
             derivedStateOf {
                 state.sources.distinctBy { it.source.lang }.size > 1
@@ -161,53 +185,104 @@ class MigrationConfigScreen(private val mangaIds: Collection<Long>) : Screen() {
                 )
             },
         ) { contentPadding ->
-            val reorderableState = rememberReorderableLazyListState(lazyListState, contentPadding) { from, to ->
+            val reorderableState = rememberReorderableLazyListState(lazyListState, PaddingValues(0.dp)) { from, to ->
+                if (!canReorder) return@rememberReorderableLazyListState
                 val fromIndex = selectedSources.indexOfFirst { it.id == from.key }
                 val toIndex = selectedSources.indexOfFirst { it.id == to.key }
                 if (fromIndex == -1 || toIndex == -1) return@rememberReorderableLazyListState
                 viewModel.orderSource(fromIndex, toIndex)
             }
 
-            FastScrollLazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = lazyListState,
-                contentPadding = contentPadding,
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(contentPadding),
             ) {
-                listOf(selectedSources, availableSources).fastForEachIndexed { listIndex, sources ->
-                    val selectedSourceList = listIndex == 0
-                    if (sources.isNotEmpty()) {
-                        val headerPrefix = if (selectedSourceList) "selected" else "available"
-                        item("$headerPrefix-header") {
+                OutlinedTextField(
+                    value = sourceQuery,
+                    onValueChange = { sourceQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = MaterialTheme.padding.medium),
+                    singleLine = true,
+                    label = { Text(stringResource(MR.strings.action_search)) },
+                )
+                Row(
+                    modifier = Modifier.padding(horizontal = MaterialTheme.padding.medium),
+                    horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+                ) {
+                    FilterChip(
+                        selected = searchSection == SourceSearchSection.Selected,
+                        onClick = {
+                            searchSection = if (searchSection == SourceSearchSection.Selected) {
+                                SourceSearchSection.All
+                            } else {
+                                SourceSearchSection.Selected
+                            }
+                        },
+                        label = { Text(stringResource(MR.strings.migrationConfigScreen_selectedHeader)) },
+                    )
+                    FilterChip(
+                        selected = searchSection == SourceSearchSection.Available,
+                        onClick = {
+                            searchSection = if (searchSection == SourceSearchSection.Available) {
+                                SourceSearchSection.All
+                            } else {
+                                SourceSearchSection.Available
+                            }
+                        },
+                        label = { Text(stringResource(MR.strings.migrationConfigScreen_availableHeader)) },
+                    )
+                }
+                FastScrollLazyColumn(
+                    modifier = Modifier.weight(1f),
+                    state = lazyListState,
+                ) {
+                    if (visibleSelectedSources.isEmpty() && visibleAvailableSources.isEmpty()) {
+                        item("empty-source-search") {
                             Text(
-                                text = stringResource(
-                                    resource = if (selectedSourceList) {
-                                        MR.strings.migrationConfigScreen_selectedHeader
-                                    } else {
-                                        MR.strings.migrationConfigScreen_availableHeader
-                                    },
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier
-                                    .padding(MaterialTheme.padding.medium)
-                                    .animateItem(),
+                                text = stringResource(MR.strings.empty_screen),
+                                modifier = Modifier.padding(MaterialTheme.padding.medium),
                             )
                         }
                     }
-                    itemsIndexed(
-                        items = sources,
-                        key = { _, item -> item.id },
-                    ) { index, item ->
-                        SourceItemContainer(
-                            firstItem = index == 0,
-                            lastItem = index == (sources.size - 1),
-                            source = item,
-                            showLanguage = showLanguage,
-                            dragEnabled = selectedSourceList && sources.size > 1,
-                            state = reorderableState,
-                            key = { if (selectedSourceList) it.id else "available-${it.id}" },
-                            onClick = { viewModel.toggleSelection(item.id) },
-                        )
-                    }
+                    listOf(visibleSelectedSources, visibleAvailableSources)
+                        .fastForEachIndexed { listIndex, sources ->
+                            val selectedSourceList = listIndex == 0
+                            if (sources.isNotEmpty()) {
+                                val headerPrefix = if (selectedSourceList) "selected" else "available"
+                                item("$headerPrefix-header") {
+                                    Text(
+                                        text = stringResource(
+                                            resource = if (selectedSourceList) {
+                                                MR.strings.migrationConfigScreen_selectedHeader
+                                            } else {
+                                                MR.strings.migrationConfigScreen_availableHeader
+                                            },
+                                        ),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier
+                                            .padding(MaterialTheme.padding.medium)
+                                            .animateItem(),
+                                    )
+                                }
+                            }
+                            itemsIndexed(
+                                items = sources,
+                                key = { _, item -> item.id },
+                            ) { index, item ->
+                                SourceItemContainer(
+                                    firstItem = index == 0,
+                                    lastItem = index == (sources.size - 1),
+                                    source = item,
+                                    showLanguage = showLanguage,
+                                    dragEnabled = selectedSourceList && canReorder && sources.size > 1,
+                                    state = reorderableState,
+                                    key = { if (selectedSourceList) it.id else "available-${it.id}" },
+                                    onClick = { viewModel.toggleSelection(item.id) },
+                                )
+                            }
+                        }
                 }
             }
         }
@@ -451,4 +526,19 @@ class MigrationConfigScreen(private val mangaIds: Collection<Long>) : Screen() {
 
         val shortLanguage: String = LocaleHelper.getShortDisplayName(source.lang)
     }
+}
+
+private enum class SourceSearchSection {
+    All,
+    Selected,
+    Available,
+}
+
+/** Search source names, languages and IDs without altering the user's saved selection or order. */
+internal fun matchesMigrationSourceSearch(name: String, language: String, id: Long, query: String): Boolean {
+    val term = query.trim()
+    return term.isEmpty() ||
+        name.contains(term, ignoreCase = true) ||
+        language.contains(term, ignoreCase = true) ||
+        id.toString().contains(term)
 }
