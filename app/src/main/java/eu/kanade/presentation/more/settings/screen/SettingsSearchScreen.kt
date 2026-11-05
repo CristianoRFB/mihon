@@ -253,11 +253,13 @@ private fun search(index: List<SettingsData>, searchKey: String, isLtr: Boolean)
                         is Preference.PreferenceGroup -> {
                             // A matching heading leads to the group itself, not to one of its items
                             val heading = if (preference.title.contains(searchKey, true)) {
-                                sequenceOf(result(
-                                    preference.title,
-                                    null,
-                                    settingsData.contents.preferencePosition(parentIndex),
-                                ))
+                                sequenceOf(
+                                    result(
+                                        preference.title,
+                                        null,
+                                        settingsData.contents.preferencePosition(parentIndex),
+                                    ),
+                                )
                             } else {
                                 emptySequence()
                             }
@@ -275,11 +277,13 @@ private fun search(index: List<SettingsData>, searchKey: String, isLtr: Boolean)
                         }
                         is Preference.PreferenceItem<*, *> -> {
                             if (preference.matches()) {
-                                sequenceOf(result(
-                                    preference.title,
-                                    null,
-                                    settingsData.contents.preferencePosition(parentIndex),
-                                ))
+                                sequenceOf(
+                                    result(
+                                        preference.title,
+                                        null,
+                                        settingsData.contents.preferencePosition(parentIndex),
+                                    ),
+                                )
                             } else {
                                 emptySequence()
                             }
