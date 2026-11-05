@@ -15,6 +15,10 @@ class UpdatesPreferences(
     preferenceStore: PreferenceStore,
 ) {
 
+    // Timestamp of the last explicit Updates-list cleanup. Chapter dates and reading
+    // progress remain untouched; only previously displayed update entries are hidden.
+    val clearedBefore: Preference<Long> = preferenceStore.getLong("pref_updates_cleared_before", 0L)
+
     val filterDownloaded: Preference<TriState> = preferenceStore.getEnum(
         "pref_filter_updates_downloaded",
         TriState.DISABLED,

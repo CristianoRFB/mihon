@@ -181,8 +181,10 @@ class UpdatesViewModel(
         getUpdatesItemPreferenceFlow().distinctUntilChanged { old, new ->
             old.filterDownloaded == new.filterDownloaded
         },
-    ) { updates, _, _, itemPreferences ->
+        updatesPreferences.clearedBefore.changes(),
+    ) { updates, _, _, itemPreferences, clearedBefore ->
         updates
+            .filter { update -> isUpdateNewerThanCleanup(update.dateFetch.toEpochMilliseconds(), clearedBefore) }
             .toUpdateItems()
             .applyFilters(itemPreferences)
     }
@@ -255,6 +257,16 @@ class UpdatesViewModel(
                     downloadProgressProvider = { downloadProgress[update.chapterId] ?: 0 },
                 )
             }
+    }
+
+    /**
+     * Clear the Updates list without deleting chapter rows, read progress, bookmarks,
+     * downloads, or history. The cutoff persists across process restarts.
+     */
+    fun clearUpdateHistory() {
+        val latestVisibleFetch = state.value.items.maxOfOrNull { it.update.dateFetch.toEpochMilliseconds() }
+        updatesPreferences.clearedBefore.set(updateClearCutoff(Clock.System.now().toEpochMilliseconds(), latestVisibleFetch))
+        toggleAllSelection(false)
     }
 
     suspend fun updateLibrary(): Boolean {
@@ -546,3 +558,11 @@ data class UpdatesItem(
     val downloadProgressProvider: () -> Int,
     val selected: Boolean = false,
 )
+
+/** A new chapter fetched exactly at the cleanup cutoff is still part of the cleared list. */
+internal fun isUpdateNewerThanCleanup(dateFetchMillis: Long, clearedBefore: Long): Boolean =
+    dateFetchMillis > clearedBefore
+
+/** Guards against future-dated fetches when a user's device clock is behind. */
+internal fun updateClearCutoff(nowMillis: Long, latestVisibleFetchMillis: Long?): Long =
+    maxOf(nowMillis, latestVisibleFetchMillis ?: 0L)
