@@ -39,5 +39,9 @@ interface SearchableSettings : Screen {
         // Set before showing the destination screen and reset after
         // See BasePreferenceWidget.highlightBackground
         var highlightKey: String? = null
+
+        // Exact row in the destination's flattened preference list.
+        // Unlike titles, positions distinguish multiple preferences named "Categories".
+        var highlightPosition: Int? = null
     }
 }
