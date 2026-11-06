@@ -43,6 +43,34 @@ class PreferencePositionTest {
     }
 
     @Test
+    fun `matching titles in separate groups map to separate destinations`() {
+        val preferences = listOf(
+            Preference.PreferenceGroup("Library", preferenceItems = listOf(item("Categories"))),
+            Preference.PreferenceGroup("Reader", preferenceItems = listOf(item("Categories"))),
+        )
+
+        preferences.preferencePosition(0, 0) shouldBe 1
+        preferences.preferencePosition(1) shouldBe 3
+        preferences.preferencePosition(1, 0) shouldBe 4
+    }
+
+    @Test
+    fun `invisible children retain their lazy list slots`() {
+        val preferences = listOf(
+            Preference.PreferenceGroup(
+                "Library",
+                preferenceItems = listOf(
+                    Preference.PreferenceItem.TextPreference("Hidden", visible = false),
+                    item("Categories"),
+                ),
+            ),
+        )
+
+        preferences.preferencePosition(0, 0) shouldBe 1
+        preferences.preferencePosition(0, 1) shouldBe 2
+    }
+
+    @Test
     fun `invalid preference indices are safely ignored`() {
         val preferences = listOf(item("Single"))
         preferences.preferencePosition(-1) shouldBe -1
